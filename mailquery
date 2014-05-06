@@ -2,33 +2,53 @@
 
 import os
 import sys
+import argparse
 import getpass
 import imaplib
 import re
 
 CHUNKSIZE = 1500
-REDATA = re.compile('''^\d+[ ]\(ENVELOPE[ ]\("[^"]+"[ ]"(?P<subject>[^"]+)".*
-                        RFC822\.SIZE[ ](?P<size>\d+)\)$''', re.VERBOSE)
+REDATA = re.compile('''^\d+[ ]\(ENVELOPE[ ]\("[^"]+"[ ]
+                       (?:"(?P<subj>.+)"|NIL)[ ]
+                       \(\((?:"[^"]+"|NIL)
+                       [^"]+
+                       (?:"(?P<name>[^"]+)"|NIL)[ ]
+                       "(?P<dom>[^"]+)".*
+                       RFC822\.SIZE[ ](?P<size>\d+)\)$''', re.VERBOSE)
+
+DESC = '''query INBOX and display index in format suitable for
+making stats with Vim'''
+EPILOGUE = '''You'll need to set the MAILQUERYPASSWORD environment variable.'''
 
 def main():
-    mail = imaplib.IMAP4_SSL(os.environ['MAILQUERYSERVER'])
-    mail.login(getpass.getuser(), os.environ['MAILQUERYPASSWORD'])
-    mail.select("INBOX", readonly=True)
-    data = mail.search(None, 'ALL')[1][0].split()
+    parser = argparse.ArgumentParser(description=DESC, epilog=EPILOGUE)
+    args = parser.parse_args()
 
-    begin, end = 0, CHUNKSIZE
-    while begin < len(data):
-        chunk = data[begin:end]
-        begin += CHUNKSIZE
-        end += CHUNKSIZE
+    try:
+        mail = imaplib.IMAP4_SSL(os.environ['MAILQUERYSERVER'])
+        mail.login(getpass.getuser(), os.environ['MAILQUERYPASSWORD'])
+        mail.select("INBOX", readonly=True)
+        data = mail.search(None, 'ALL')[1][0].split()
 
-        chunk = ','.join(chunk)
-        for msg in mail.fetch(chunk, '(ENVELOPE RFC822.SIZE)')[1]:
-            match = REDATA.match(msg)
-            if match:
-                print match.group('size'), match.group('subject')
-            else:
-                print >> sys.stderr, msg
+        begin, end = 0, CHUNKSIZE
+        while begin < len(data):
+            chunk = data[begin:end]
+            begin += CHUNKSIZE
+            end += CHUNKSIZE
+
+            chunk = ','.join(chunk)
+            for msg in mail.fetch(chunk, '(ENVELOPE RFC822.SIZE)')[1]:
+                match = REDATA.match(msg)
+                if match:
+                    print match.group('size'), \
+                        '%s@%s' % (match.group('name'), match.group('dom')), \
+                        match.group('subj')
+                else:
+                    print >> sys.stderr, msg
+    except KeyError, exc:
+        print >> sys.stderr, "unset environment variable: %s" % exc.message
+    except imaplib.IMAP4.error, exc:
+        print >> sys.stderr, exc
 
 if __name__ == '__main__':
     sys.exit(main())
