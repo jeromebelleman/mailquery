@@ -1,0 +1,34 @@
+#! /usr/bin/env python
+
+import os
+import sys
+import getpass
+import imaplib
+import re
+
+CHUNKSIZE = 1500
+REDATA = re.compile('''^\d+[ ]\(ENVELOPE[ ]\("[^"]+"[ ]"(?P<subject>[^"]+)".*
+                        RFC822\.SIZE[ ](?P<size>\d+)\)$''', re.VERBOSE)
+
+def main():
+    mail = imaplib.IMAP4_SSL(os.environ['MAILQUERYSERVER'])
+    mail.login(getpass.getuser(), os.environ['MAILQUERYPASSWORD'])
+    mail.select("INBOX", readonly=True)
+    data = mail.search(None, 'ALL')[1][0].split()
+
+    begin, end = 0, CHUNKSIZE
+    while begin < len(data):
+        chunk = data[begin:end]
+        begin += CHUNKSIZE
+        end += CHUNKSIZE
+
+        chunk = ','.join(chunk)
+        for msg in mail.fetch(chunk, '(ENVELOPE RFC822.SIZE)')[1]:
+            match = REDATA.match(msg)
+            if match:
+                print match.group('size'), match.group('subject')
+            else:
+                print >> sys.stderr, msg
+
+if __name__ == '__main__':
+    sys.exit(main())
